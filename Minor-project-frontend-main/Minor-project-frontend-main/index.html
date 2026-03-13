@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+<title>VeriGen AI</title>
+<style>
+
+body{
+font-family: Arial, sans-serif;
+margin:0;
+padding:0;
+background:linear-gradient(135deg,#cfd9df,#e2ebf0);
+}
+
+header{
+text-align:center;
+padding:30px;
+background:white;
+box-shadow:0 2px 10px rgba(0,0,0,0.1);
+}
+
+header h1{
+margin:0;
+color:#5a67d8;
+}
+
+.container{
+width:70%;
+margin:auto;
+margin-top:40px;
+}
+
+.card{
+background:white;
+padding:30px;
+border-radius:12px;
+margin-bottom:30px;
+box-shadow:0 8px 20px rgba(0,0,0,0.08);
+}
+
+textarea{
+width:100%;
+height:120px;
+padding:10px;
+border-radius:8px;
+border:1px solid #ccc;
+}
+
+select{
+padding:8px;
+border-radius:6px;
+}
+
+button{
+padding:12px 20px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+margin-top:20px;
+margin-right:10px;
+}
+
+.generate{
+background:#5a67d8;
+color:white;
+}
+
+.export{
+background:#63b36a;
+color:white;
+}
+
+.stats{
+display:flex;
+justify-content:space-between;
+margin-top:20px;
+}
+
+.stat{
+flex:1;
+margin:10px;
+padding:20px;
+border-radius:10px;
+text-align:center;
+background:#f2f4f7;
+}
+
+.stat h2{
+margin:0;
+color:#5a67d8;
+}
+
+.risk-high{
+background:#f5d6d6;
+}
+
+.risk-medium{
+background:#f2e6b8;
+}
+
+.risk-low{
+background:#d6ecd6;
+}
+
+table{
+border-collapse:collapse;
+margin-top:20px;
+}
+
+table th{
+background:#5a67d8;
+color:white;
+padding:10px;
+}
+
+table td{
+padding:10px;
+border:1px solid #ccc;
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<header>
+<h1>VeriGen AI</h1>
+<p>Intelligent Software Test Case Generator</p>
+</header>
+
+<div class="container">
+
+<!-- Requirement Analyzer -->
+
+<div class="card">
+
+<h2>Requirement Analyzer</h2>
+
+<textarea id="requirementText" placeholder="Enter software requirement..."></textarea>
+
+<br><br>
+
+<label>Input Format:</label>
+
+<select>
+<option>Text Input</option>
+<option>Upload File</option>
+</select>
+
+<br><br>
+
+<label>Upload Requirement File</label>
+
+<input type="file">
+
+<br><br>
+
+<button class="generate" onclick="generateCases()">Generate Test Cases</button>
+
+<button class="export">Export CSV</button>
+
+</div>
+
+
+<!-- Coverage Analysis -->
+
+<div class="card">
+
+<h2>Coverage Analysis</h2>
+
+<div class="stats">
+
+<div class="stat">
+<h2 id="positive">0</h2>
+<p>Positive Cases</p>
+</div>
+
+<div class="stat">
+<h2 id="negative">0</h2>
+<p>Negative Cases</p>
+</div>
+
+<div class="stat">
+<h2 id="edge">0</h2>
+<p>Edge Cases</p>
+</div>
+
+</div>
+
+</div>
+
+
+<!-- Risk Prioritization -->
+
+<div class="card">
+
+<h2>Risk Based Prioritization</h2>
+
+<div class="stats">
+
+<div class="stat risk-high">
+<h2 id="high">0</h2>
+<p>High Risk</p>
+</div>
+
+<div class="stat risk-medium">
+<h2 id="medium">0</h2>
+<p>Medium Risk</p>
+</div>
+
+<div class="stat risk-low">
+<h2 id="low">0</h2>
+<p>Low Risk</p>
+</div>
+
+</div>
+
+</div>
+
+
+<!-- Generated Test Cases -->
+
+<div class="card">
+
+<h2>Generated Test Cases</h2>
+
+<table width="100%" id="testcaseTable">
+
+<tr>
+<th>ID</th>
+<th>Type</th>
+<th>Description</th>
+<th>Expected Result</th>
+</tr>
+
+</table>
+
+</div>
+
+</div>
+
+
+<script>
+
+async function generateCases(){
+
+const requirement=document.getElementById("requirementText").value;
+
+if(requirement===""){
+alert("Please enter requirement");
+return;
+}
+
+const data={requirement:requirement};
+
+try{
+
+// COVERAGE API
+
+const coverageResponse=await fetch("http://127.0.0.1:8000/coverage",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify(data)
+
+});
+
+const coverageData=await coverageResponse.json();
+
+document.getElementById("positive").innerText=coverageData.positive;
+document.getElementById("negative").innerText=coverageData.negative;
+document.getElementById("edge").innerText=coverageData.edge;
+
+
+// RISK API
+
+const riskResponse=await fetch("http://127.0.0.1:8000/risk",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify(data)
+
+});
+
+const riskData=await riskResponse.json();
+
+document.getElementById("high").innerText=riskData.high;
+document.getElementById("medium").innerText=riskData.medium;
+document.getElementById("low").innerText=riskData.low;
+
+
+// TEST CASE GENERATION
+
+const tcResponse=await fetch("http://127.0.0.1:8000/testcases",{
+
+method:"POST",
+
+headers:{
+"Content-Type":"application/json"
+},
+
+body:JSON.stringify(data)
+
+});
+
+const tcData=await tcResponse.json();
+
+const table=document.getElementById("testcaseTable");
+
+table.innerHTML=`
+<tr>
+<th>ID</th>
+<th>Type</th>
+<th>Description</th>
+<th>Expected Result</th>
+</tr>
+`;
+
+tcData.test_cases.forEach(tc=>{
+
+let row=table.insertRow();
+
+row.insertCell(0).innerText=tc.id;
+row.insertCell(1).innerText=tc.type;
+row.insertCell(2).innerText=tc.description;
+row.insertCell(3).innerText=tc.expected;
+
+});
+
+}
+
+catch(error){
+
+alert("Backend connection failed");
+
+}
+
+}
+
+</script>
+
+
+</body>
+
+</html>
