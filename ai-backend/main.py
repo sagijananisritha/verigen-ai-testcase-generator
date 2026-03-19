@@ -16,56 +16,69 @@ app.add_middleware(
 
 class RequirementRequest(BaseModel):
     requirement_text: str
+class CoverageResponse(BaseModel):
+    positive: int
+    negative: int
+    edge: int
 
+class RiskResponse(BaseModel):
+    high: int
+    medium: int
+    low: int
 def generate_test_cases_with_ollama(srs_text: str) -> dict:
-    url = "http://localhost:11434/api/generate"
-    prompt = f"""
-    You are an expert Senior QA Engineer. I will provide you with a Software Requirement text.
-    Your job is to:
-    1. Analyze the context.
-    2. Extract input fields, business rules, validation rules, and constraints.
-    3. Generate comprehensive test cases categorized strictly as: Positive, Negative, Boundary Value, Edge Cases, and Error Handling.
-
-    You must output your response STRICTLY as a JSON object with this exact structure:
-    {{
-        "extracted_context": "A brief 2-sentence summary of the requirement",
-        "business_rules": ["rule 1", "rule 2"],
-        "test_cases": [
-            {{
-                "category": "Positive",
-                "scenario": "Description of what is being tested",
-                "test_steps": "1. Step one 2. Step two",
-                "expected_result": "What should happen"
-            }}
-        ]
-    }}
-
-    Do not include any other text, greetings, or explanations outside the JSON block.
-
-    Here is the Requirement Text to analyze:
-    {srs_text}
-    """
-
-    payload = {
-        
-    "model": "llama3.2:1b", # <-- This specific version is incredibly lightweight
-    "prompt": prompt,
-    "format": "json",
-    "stream": False
-
-    }
+   def generate_test_cases_with_ollama(srs_text: str) -> dict:
     
+    # --- ADD THIS PROMPT LINE HERE (Line 29) ---
+    prompt = f"Generate exhaustive test cases for this requirement: {srs_text}"
+    
+    # Line 30: Now the payload can find the 'prompt' variable!
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": "llama3.2:1b",
+        "prompt": prompt,  # <--- No more squiggle here!
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict": 500
+        }
+    }
+    # 1. We removed "format": "json" so the AI doesn't freeze!
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": "llama3.2:1b",
+        "prompt": prompt,
+        "stream": False,
+        "options": {
+            "temperature": 0.0,
+            "num_predict":500
+            
+        }
+    }
 
     try:
         response = requests.post(url, json=payload)
-        response.raise_for_status() 
+        response.raise_for_status()
         result = response.json()
-        return json.loads(result["response"])
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=500, detail=f"Error communicating with Ollama: {str(e)}")
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Ollama returned invalid JSON.")
-
+        
+        raw_ai_text = result.get("response", "").strip()
+        
+        # --- THE SURGICAL EXTRACTOR ---
+        import re
+        import json
+        
+        # This finds everything from the first '{' to the last '}'
+        match = re.search(r'\{.*\}', raw_ai_text, re.DOTALL)
+        
+        if match:
+            clean_json = match.group(0) # Extracts ONLY the JSON part
+            return json.loads(clean_json)
+        else:
+            # If it totally failed, return an empty array to trigger the frontend message
+            return {"test_cases": []}
+            
+    except Exception as e:
+        print(f"Backend Error: {e}")
+        return {"test_cases": []}
 
 @app.get("/")
 def read_root():
@@ -74,16 +87,93 @@ def read_root():
 # THE ENDPOINT WE ARE HITTING
 @app.post("/generate-test-cases/")
 async def generate_test_cases(request: RequirementRequest):
-    if not request.requirement_text.strip():
-        raise HTTPException(status_code=400, detail="Requirement text cannot be empty.")
+    prompt = f"""
+    Requirement: "{request.requirement_text}"
     
-    try:
-        data = generate_test_cases_with_ollama(request.requirement_text)
-        return {
-            "message": "Success",
-            "data": data
+    Generate test cases for this requirement. 
+    You MUST return EXACTLY a JSON array. Do not write any conversational text.
+    Use this exact format:
+    [
+        {{"id": "TC-1", "type": "Positive", "description": "user does X", "expected_result": "system does Y"}}
+    ]
+    """
+    
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": "llama3.2:1b",
+        "prompt": prompt,
+        "stream": False,
+        "format": "json", 
+        "options": {
+            "temperature": 0.0
         }
-    except HTTPException as he:
-        raise he
+    }
+
+    try:
+        import json
+        import requests
+        import re
+        
+        response = requests.post(url, json=payload)
+        response.raise_for_status()
+        
+        raw_text = response.json().get("response", "").strip()
+        
+        # Spy Camera in the Python Terminal
+        print("\n=== WHAT THE AI WROTE ===")
+        print(raw_text)
+        print("=========================\n")
+        
+        # The Surgical Extractor: Cuts out just the JSON list
+        match = re.search(r'\[.*\]', raw_text, re.DOTALL)
+        if match:
+            clean_json = match.group(0)
+            data = json.loads(clean_json)
+        else:
+            data = json.loads(raw_text)
+        
+        # Wrap it safely for the website
+        if isinstance(data, list):
+            return {"test_cases": data}
+            
+        return data
+        
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Backend Crash: {e}")
+        # The Dummy Fallback: Prints the error on your website table instead of crashing
+        return {
+            "test_cases": [
+                {
+                    "id": "SYS-ERR", 
+                    "type": "Backend Crash", 
+                    "description": "The AI failed or Python crashed.", 
+                    "expected_result": str(e)
+                }
+            ]
+        }
+@app.post("/coverage", response_model=CoverageResponse)
+async def get_coverage(request: RequirementRequest):
+    # This is where your logic goes! 
+    # For now, let's return some smart numbers based on the text length
+    text = request.requirement_text.lower()
+    
+    # Simple logic: more words = more cases
+    word_count = len(text.split())
+    
+    return {
+        "positive": max(2, word_count // 5),
+        "negative": max(1, word_count // 8),
+        "edge": max(1, word_count // 10)
+    } 
+class RiskResponse(BaseModel):
+    high: int
+    medium: int
+    low: int
+
+@app.post("/risk", response_model=RiskResponse)
+async def get_risk(request: RequirementRequest):
+    text = request.requirement_text.lower()
+    # Simple logic for risk assessment
+    if "security" in text or "load" in text:
+        return {"high": 1, "medium": 1, "low": 0}
+    return {"high": 0, "medium": 1, "low": 2}

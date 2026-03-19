@@ -5,6 +5,7 @@
 
 <meta charset="UTF-8">
 <title>VeriGen AI</title>
+<link rel="icon" href="data:;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=">
 <style>
 
 body{
@@ -135,29 +136,29 @@ border:1px solid #ccc;
 <div class="container">
 
 <!-- Requirement Analyzer -->
+<div class="card p-6 bg-white rounded shadow">
+    
+    <div id="textInputContainer">
+        <textarea id="requirementText" 
+                  class="w-full p-4 border rounded" 
+                  placeholder="Enter software requirement..." 
+                  rows="6"></textarea>
+    </div>
 
-<div class="card">
+    <div id="fileInputContainer" style="display: none;" class="p-10 border-2 border-dashed border-gray-300 rounded text-center">
+        <p class="text-gray-500 mb-2">Requirement File Mode Active</p>
+        <input type="file" id="fileInput" accept=".txt" class="mx-auto">
+    </div>
 
-<h2>Requirement Analyzer</h2>
+    <div class="mt-4 flex items-center gap-4">
+        <label class="font-bold">Input Format:</label>
+        <select id="formatSelect" onchange="toggleInput()" class="border p-2 rounded">
+            <option value="text">Text Input</option>
+            <option value="file">Upload File</option>
+        </select>
+    </div>
+</div>
 
-<textarea id="requirementText" placeholder="Enter software requirement..."></textarea>
-
-<br><br>
-
-<label>Input Format:</label>
-
-<select>
-<option>Text Input</option>
-<option>Upload File</option>
-</select>
-
-<br><br>
-
-<label>Upload Requirement File</label>
-
-<input type="file">
-
-<br><br>
 
 <button class="generate" onclick="generateCases()">Generate Test Cases</button>
 
@@ -245,113 +246,124 @@ border:1px solid #ccc;
 
 
 <script>
+ function toggleInput() {
+    const format = document.getElementById("formatSelect").value;
+    const textDiv = document.getElementById("textInputContainer");
+    const fileDiv = document.getElementById("fileInputContainer");
 
-async function generateCases(){
+    if (format === "text") {
+        textDiv.style.display = "block";
+        fileDiv.style.display = "none";
+    } else {
+        textDiv.style.display = "none";
+        fileDiv.style.display = "block";
+    }
+}   
+async function generateCases() {
+    const format = document.getElementById("formatSelect").value;
+    let finalRequirement = "";
 
-const requirement=document.getElementById("requirementText").value;
+    if (format === "text") {
+        // Grab from the textarea
+        finalRequirement = document.getElementById("requirementText").value;
+    } else {
+        // Grab from the file input
+        const file = document.getElementById("fileInput").files[0];
+        if (file) {
+            finalRequirement = await file.text(); // Reads the .txt file content
+        }
+    }
 
-if(requirement===""){
-alert("Please enter requirement");
-return;
-}
+    if (!finalRequirement || finalRequirement.trim() === "") {
+        alert("Please provide a requirement (either type it or upload a file)!");
+        return;
+    }
 
-const data={requirement:requirement};
+    // Now update Line 283 to use finalRequirement
+    const data = { requirement_text: finalRequirement };
 
-try{
+    
 
-// COVERAGE API
+    try {
+        // --- 1. COVERAGE (Fast Math - Happens Instantly) ---
+        const covResponse = await fetch("http://127.0.0.1:8001/coverage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        if (covResponse.ok) {
+            const covData = await covResponse.json();
+            document.getElementById("positive").innerText = covData.positive;
+            document.getElementById("negative").innerText = covData.negative;
+            document.getElementById("edge").innerText = covData.edge;
+        }
 
-const coverageResponse=await fetch("http://127.0.0.1:8000/coverage",{
+        // --- 2. RISK (Fast Math - Happens Instantly) ---
+        const riskResponse = await fetch("http://127.0.0.1:8001/risk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        if (riskResponse.ok) {
+            const riskData = await riskResponse.json();
+            document.getElementById("high").innerText = riskData.high;
+            document.getElementById("medium").innerText = riskData.medium;
+            document.getElementById("low").innerText = riskData.low;
+        }
+        // --- 3. TEST CASES (Heavy AI - Happens Last) ---
+        const tcResponse = await fetch("http://127.0.0.1:8001/generate-test-cases/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        
+        if (tcResponse.ok) {
+            const result = await tcResponse.json();
+            console.log("Full Result from Python:", result);
 
-method:"POST",
+            // This line is the secret sauce: 
+            // It looks for result.test_cases OR result.data OR just the result itself
+            const testCasesArray = result.test_cases || result.data || (Array.isArray(result) ? result : []);
 
-headers:{
-"Content-Type":"application/json"
-},
+            const table = document.getElementById("testcaseTable");
+            // ... (keep your existing table.innerHTML code) ...
 
-body:JSON.stringify(data)
+            if (testCasesArray.length === 0) {
+                // Show the empty message
+            } else {
+                testCasesArray.forEach((tc, index) => {
+                    let row = table.insertRow();
+                    // Using || to handle different naming styles from the AI
+                    row.insertCell(0).innerText = tc.id || `TC-${index + 1}`;
+                    row.insertCell(1).innerText = tc.type || tc.category || "General";
+                    row.insertCell(2).innerText = tc.description || tc.scenario || "No description";
+                    row.insertCell(3).innerText = tc.expected_result || tc.expected || "N/A";
+                });
+            }
+        }
 
-});
-
-const coverageData=await coverageResponse.json();
-
-document.getElementById("positive").innerText=coverageData.positive;
-document.getElementById("negative").innerText=coverageData.negative;
-document.getElementById("edge").innerText=coverageData.edge;
-
-
-// RISK API
-
-const riskResponse=await fetch("http://127.0.0.1:8000/risk",{
-
-method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify(data)
-
-});
-
-const riskData=await riskResponse.json();
-
-document.getElementById("high").innerText=riskData.high;
-document.getElementById("medium").innerText=riskData.medium;
-document.getElementById("low").innerText=riskData.low;
-
-
-// TEST CASE GENERATION
-
-const tcResponse=await fetch("http://127.0.0.1:8000/testcases",{
-
-method:"POST",
-
-headers:{
-"Content-Type":"application/json"
-},
-
-body:JSON.stringify(data)
-
-});
-
-const tcData=await tcResponse.json();
-
-const table=document.getElementById("testcaseTable");
-
-table.innerHTML=`
-<tr>
-<th>ID</th>
-<th>Type</th>
-<th>Description</th>
-<th>Expected Result</th>
-</tr>
-`;
-
-tcData.test_cases.forEach(tc=>{
-
-let row=table.insertRow();
-
-row.insertCell(0).innerText=tc.id;
-row.insertCell(1).innerText=tc.type;
-row.insertCell(2).innerText=tc.description;
-row.insertCell(3).innerText=tc.expected;
-
-});
-
-}
-
-catch(error){
-
-alert("Backend connection failed");
-
-}
-
-}
-
-</script>
-
-
-</body>
+            if (testCasesArray.length === 0) {
+                let row = table.insertRow();
+                let cell = row.insertCell(0);
+                cell.colSpan = 4;
+                cell.innerText = "The AI returned empty data. Please try clicking Generate again!";
+                cell.style.textAlign = "center";
+            } else {
+                testCasesArray.forEach((tc, index) => {
+                    let row = table.insertRow();
+                    row.insertCell(0).innerText = tc.id || `TC-${index + 1}`;
+                    row.insertCell(1).innerText = tc.type || tc.category || "General";
+                    row.insertCell(2).innerText = tc.description || tc.scenario || "No description";
+                    row.insertCell(3).innerText = tc.expected_result || tc.expected || "N/A";
+                });
+            
+        
+    } // Closes if (tcResponse.ok)
+        
+    } catch (error) {
+        console.error("Pipeline Error:", error);
+    }
+} // Closes async function generateCases()
+</script>    
 
 </html>

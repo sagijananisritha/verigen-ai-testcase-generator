@@ -70,14 +70,47 @@ const Index = () => {
   const [isGenerating, setIsGenerating] = useState(false);
   const inputRef = useRef<HTMLDivElement>(null);
 
-  const handleGenerate = () => {
+  
+  const handleGenerate = async () => {
     if (!requirement.trim()) return;
+
     setIsGenerating(true);
-    setTimeout(() => {
-      setTestCases(sampleTestCases);
-      setIsGenerating(false);
-    }, 1200);
-  };
+
+    try {
+        const response = await fetch('http://127.0.0.1:8000/generate-test-cases/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ requirement_text: requirement })
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        const formattedTestCases = result.data.test_cases.map((tc: any, index: number) => ({
+             id: `TC-${index + 1}`,
+             scenario: tc.scenario,
+             steps: tc.test_steps,
+             testData: tc.category, 
+             expectedResult: tc.expected_result,
+             priority: "Medium", 
+             severity: "Minor"  
+        }));
+        
+        setTestCases(formattedTestCases); 
+
+    } catch (error) {
+        console.error("Failed to generate test cases:", error);
+        alert("Failed to connect to backend. Is Python running?");
+    } finally {
+        setIsGenerating(false);
+    }
+};
+  
 
   const scrollToInput = () => {
     inputRef.current?.scrollIntoView({ behavior: "smooth" });
