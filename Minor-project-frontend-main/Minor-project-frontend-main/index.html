@@ -149,7 +149,13 @@ border:1px solid #ccc;
         <p class="text-gray-500 mb-2">Requirement File Mode Active</p>
         <input type="file" id="fileInput" accept=".txt" class="mx-auto">
     </div>
-
+<div id="clarityBox" class="mt-3 p-3 rounded-lg hidden" style="border: 1px solid #ddd; background: #f9f9f9;">
+    <div class="flex justify-between items-center">
+        <span class="font-bold text-sm">Clarity Score: <span id="clarityScore">0</span>/10</span>
+        <span id="clarityStatus" class="px-2 py-1 rounded text-xs font-bold text-white"></span>
+    </div>
+    <p id="claritySuggestion" class="text-xs mt-1 text-gray-600 italic"></p>
+</div>
     <div class="mt-4 flex items-center gap-4">
         <label class="font-bold">Input Format:</label>
         <select id="formatSelect" onchange="toggleInput()" class="border p-2 rounded">
@@ -246,7 +252,7 @@ border:1px solid #ccc;
 
 
 <script>
- function toggleInput() {
+function toggleInput() {
     const format = document.getElementById("formatSelect").value;
     const textDiv = document.getElementById("textInputContainer");
     const fileDiv = document.getElementById("fileInputContainer");
@@ -258,19 +264,19 @@ border:1px solid #ccc;
         textDiv.style.display = "none";
         fileDiv.style.display = "block";
     }
-}   
+}
+
 async function generateCases() {
     const format = document.getElementById("formatSelect").value;
     let finalRequirement = "";
 
+    // 1. Get the Requirement Content
     if (format === "text") {
-        // Grab from the textarea
         finalRequirement = document.getElementById("requirementText").value;
     } else {
-        // Grab from the file input
-        const file = document.getElementById("fileInput").files[0];
-        if (file) {
-            finalRequirement = await file.text(); // Reads the .txt file content
+        const fileInput = document.getElementById("fileInput");
+        if (fileInput.files.length > 0) {
+            finalRequirement = await fileInput.files[0].text();
         }
     }
 
@@ -279,91 +285,82 @@ async function generateCases() {
         return;
     }
 
-    // Now update Line 283 to use finalRequirement
-    const data = { requirement_text: finalRequirement };
-
-    
-
     try {
-        // --- 1. COVERAGE (Fast Math - Happens Instantly) ---
-        const covResponse = await fetch("http://127.0.0.1:8001/coverage", {
+        const data = { requirement_text: finalRequirement };
+
+        // --- STEP A: CLARITY CHECK ---
+        const clarityRes = await fetch("http://127.0.0.1:8001/check-clarity/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(data)
         });
-        if (covResponse.ok) {
-            const covData = await covResponse.json();
-            document.getElementById("positive").innerText = covData.positive;
-            document.getElementById("negative").innerText = covData.negative;
-            document.getElementById("edge").innerText = covData.edge;
-        }
 
-        // --- 2. RISK (Fast Math - Happens Instantly) ---
-        const riskResponse = await fetch("http://127.0.0.1:8001/risk", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-        });
-        if (riskResponse.ok) {
-            const riskData = await riskResponse.json();
-            document.getElementById("high").innerText = riskData.high;
-            document.getElementById("medium").innerText = riskData.medium;
-            document.getElementById("low").innerText = riskData.low;
-        }
-        // --- 3. TEST CASES (Heavy AI - Happens Last) ---
-        const tcResponse = await fetch("http://127.0.0.1:8001/generate-test-cases/", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(data)
-        });
-        
-        if (tcResponse.ok) {
-            const result = await tcResponse.json();
-            console.log("Full Result from Python:", result);
-
-            // This line is the secret sauce: 
-            // It looks for result.test_cases OR result.data OR just the result itself
-            const testCasesArray = result.test_cases || result.data || (Array.isArray(result) ? result : []);
-
-            const table = document.getElementById("testcaseTable");
-            // ... (keep your existing table.innerHTML code) ...
-
-            if (testCasesArray.length === 0) {
-                // Show the empty message
-            } else {
-                testCasesArray.forEach((tc, index) => {
-                    let row = table.insertRow();
-                    // Using || to handle different naming styles from the AI
-                    row.insertCell(0).innerText = tc.id || `TC-${index + 1}`;
-                    row.insertCell(1).innerText = tc.type || tc.category || "General";
-                    row.insertCell(2).innerText = tc.description || tc.scenario || "No description";
-                    row.insertCell(3).innerText = tc.expected_result || tc.expected || "N/A";
-                });
+        if (clarityRes.ok) {
+            const cData = await clarityRes.ok ? await clarityRes.json() : null;
+            if (cData) {
+                document.getElementById("clarityBox").classList.remove("hidden");
+                document.getElementById("clarityScore").innerText = cData.score;
+                document.getElementById("clarityStatus").innerText = cData.status;
+                document.getElementById("claritySuggestion").innerText = cData.suggestion;
+                
+                const badge = document.getElementById("clarityStatus");
+                badge.style.backgroundColor = cData.score > 7 ? "#22c55e" : (cData.score > 4 ? "#f59e0b" : "#ef4444");
             }
         }
 
-            if (testCasesArray.length === 0) {
+        // --- STEP B: COVERAGE CARDS ---
+        const covRes = await fetch("http://127.0.0.1:8001/coverage", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        if (covRes.ok) {
+            const covData = await covRes.json();
+            document.getElementById("positive").innerText = covData.positive || 0;
+            document.getElementById("negative").innerText = covData.negative || 0;
+            document.getElementById("edge").innerText = covData.edge || 0;
+        }
+
+        // --- STEP C: RISK CARDS ---
+        const riskRes = await fetch("http://127.0.0.1:8001/risk", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+        if (riskRes.ok) {
+            const riskData = await riskRes.json();
+            document.getElementById("high").innerText = riskData.high || 0;
+            document.getElementById("medium").innerText = riskData.medium || 0;
+            document.getElementById("low").innerText = riskData.low || 0;
+        }
+
+        // --- STEP D: GENERATE TEST CASES TABLE ---
+        const tcRes = await fetch("http://127.0.0.1:8001/generate-test-cases/", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data)
+        });
+
+        if (tcRes.ok) {
+            const result = await tcRes.json();
+            const testCasesArray = result.test_cases || [];
+            const table = document.getElementById("testcaseTable");
+            table.innerHTML = ""; // Clear "Empty Data" message
+
+            testCasesArray.forEach((tc, index) => {
                 let row = table.insertRow();
-                let cell = row.insertCell(0);
-                cell.colSpan = 4;
-                cell.innerText = "The AI returned empty data. Please try clicking Generate again!";
-                cell.style.textAlign = "center";
-            } else {
-                testCasesArray.forEach((tc, index) => {
-                    let row = table.insertRow();
-                    row.insertCell(0).innerText = tc.id || `TC-${index + 1}`;
-                    row.insertCell(1).innerText = tc.type || tc.category || "General";
-                    row.insertCell(2).innerText = tc.description || tc.scenario || "No description";
-                    row.insertCell(3).innerText = tc.expected_result || tc.expected || "N/A";
-                });
-            
-        
-    } // Closes if (tcResponse.ok)
-        
+                row.insertCell(0).innerText = tc.id || `TC-${index + 1}`;
+                row.insertCell(1).innerText = tc.type || "General";
+                row.insertCell(2).innerText = tc.description || "N/A";
+                row.insertCell(3).innerText = tc.expected_result || "N/A";
+            });
+        }
+
     } catch (error) {
         console.error("Pipeline Error:", error);
+        alert("Something went wrong. Check the console for details.");
     }
-} // Closes async function generateCases()
-</script>    
-
+}
+</script>
+</body>
 </html>
